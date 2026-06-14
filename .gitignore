@@ -1,0 +1,35 @@
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go build/test outputs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Dependency/vendor workspace caches
+vendor/
+
+# Local env/config
+.env
+.env.*
+*.local
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+dist/
+build/
