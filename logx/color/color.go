@@ -1,7 +1,5 @@
 package color
 
-import "github.com/yexuzz/gokit/logx"
-
 // ANSI 表示终端 ANSI 颜色控制符。
 type ANSI string
 
@@ -24,13 +22,3 @@ const (
 
 // Reset 表示重置终端颜色的 ANSI 控制符。
 const Reset ANSI = "\x1b[0m"
-
-// DefaultLevelColors 返回默认日志级别颜色映射。
-func DefaultLevelColors() map[logx.Level]ANSI {
-	return map[logx.Level]ANSI{
-		logx.DebugLevel: Blue,
-		logx.InfoLevel:  Green,
-		logx.WarnLevel:  Yellow,
-		logx.ErrorLevel: Red,
-	}
-}
