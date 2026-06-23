@@ -8,7 +8,7 @@ import (
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
-// Config 定义 JWT Handler 的运行配置.
+// Config 定义 JWT Manager 的运行配置.
 type Config struct {
 	AccessTokenKey    []byte              // access token 签名密钥.
 	RefreshTokenKey   []byte              // refresh token 签名密钥.
@@ -22,7 +22,7 @@ type Config struct {
 	TokenIDGenerator  func() string       // jti 生成函数.
 }
 
-// Option 用于调整 JWT Handler 配置.
+// Option 用于调整 JWT Manager 配置.
 type Option func(*Config)
 
 // WithAccessTokenKey 设置 access token 签名密钥.

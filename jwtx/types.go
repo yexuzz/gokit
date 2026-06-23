@@ -57,11 +57,11 @@ func WithUserAgent(userAgent string) IssueOption {
 	}
 }
 
-// Handler 定义 JWT 登录凭证的签发, 校验, 刷新和清理流程.
+// Manager 定义 JWT 登录凭证的签发, 校验, 刷新和清理流程.
 //
-// Handler 不依赖 Gin, Cookie 或 Redis 具体类型. HTTP 框架只需要负责取出 token 字符串,
+// Manager 不依赖 Gin, Cookie 或 Redis 具体类型. HTTP 框架只需要负责取出 token 字符串,
 // 再把返回的 token 写回响应即可.
-type Handler[T any] interface {
+type Manager[T any] interface {
 	// SetLoginToken 登录成功后签发 access token 和 refresh token, 并保存 refresh token 状态.
 	SetLoginToken(ctx context.Context, payload T, opts ...IssueOption) (TokenPair, error)
 	// SetAccessToken 根据已有 session 重新签发 access token.

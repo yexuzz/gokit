@@ -13,11 +13,11 @@ type adminPayload struct {
 	Username string `json:"username"`
 }
 
-// TestDefaultHandler 验证默认 Handler 可以完成登录签发, 校验, 刷新和退出失效.
-func TestDefaultHandler(t *testing.T) {
+// TestDefaultManager 验证默认 Manager 可以完成登录签发, 校验, 刷新和退出失效.
+func TestDefaultManager(t *testing.T) {
 	store := newFakeStore()
 	ids := []string{"ssid-1", "access-1", "refresh-1", "access-2"}
-	handler, err := NewHandler[adminPayload](
+	manager, err := NewManager[adminPayload](
 		WithAccessTokenKey([]byte("access-secret")),
 		WithRefreshTokenKey([]byte("refresh-secret")),
 		WithStore(store),
@@ -37,7 +37,7 @@ func TestDefaultHandler(t *testing.T) {
 		t.Fatalf("new handler: %v", err)
 	}
 
-	pair, err := handler.SetLoginToken(context.Background(), adminPayload{
+	pair, err := manager.SetLoginToken(context.Background(), adminPayload{
 		UID:      "10001",
 		Username: "admin",
 	}, WithUserAgent("unit-test"))
@@ -51,7 +51,7 @@ func TestDefaultHandler(t *testing.T) {
 		t.Fatalf("refresh token id not saved: %v", store.refresh)
 	}
 
-	session, err := handler.CheckAccessToken(context.Background(), pair.AccessToken)
+	session, err := manager.CheckAccessToken(context.Background(), pair.AccessToken)
 	if err != nil {
 		t.Fatalf("check access token: %v", err)
 	}
@@ -65,11 +65,11 @@ func TestDefaultHandler(t *testing.T) {
 		t.Fatalf("unexpected user agent: %s", session.UserAgent)
 	}
 
-	newAccessToken, err := handler.RefreshAccessToken(context.Background(), pair.RefreshToken)
+	newAccessToken, err := manager.RefreshAccessToken(context.Background(), pair.RefreshToken)
 	if err != nil {
 		t.Fatalf("refresh access token: %v", err)
 	}
-	refreshedSession, err := handler.CheckAccessToken(context.Background(), newAccessToken)
+	refreshedSession, err := manager.CheckAccessToken(context.Background(), newAccessToken)
 	if err != nil {
 		t.Fatalf("check refreshed access token: %v", err)
 	}
@@ -80,10 +80,10 @@ func TestDefaultHandler(t *testing.T) {
 		t.Fatalf("unexpected refreshed payload: %#v", refreshedSession.Payload)
 	}
 
-	if err = handler.ClearToken(context.Background(), newAccessToken); err != nil {
+	if err = manager.ClearToken(context.Background(), newAccessToken); err != nil {
 		t.Fatalf("clear token: %v", err)
 	}
-	if _, err = handler.CheckAccessToken(context.Background(), newAccessToken); !errors.Is(err, ErrSessionRevoked) {
+	if _, err = manager.CheckAccessToken(context.Background(), newAccessToken); !errors.Is(err, ErrSessionRevoked) {
 		t.Fatalf("expect revoked error, got %v", err)
 	}
 }
@@ -91,7 +91,7 @@ func TestDefaultHandler(t *testing.T) {
 // TestRefreshTokenInvalid 验证 refresh token jti 和服务端记录不一致时不能刷新.
 func TestRefreshTokenInvalid(t *testing.T) {
 	store := newFakeStore()
-	handler, err := NewHandler[adminPayload](
+	manager, err := NewManager[adminPayload](
 		WithAccessTokenKey([]byte("access-secret")),
 		WithRefreshTokenKey([]byte("refresh-secret")),
 		WithStore(store),
@@ -100,13 +100,13 @@ func TestRefreshTokenInvalid(t *testing.T) {
 		t.Fatalf("new handler: %v", err)
 	}
 
-	pair, err := handler.SetLoginToken(context.Background(), adminPayload{UID: "10001"})
+	pair, err := manager.SetLoginToken(context.Background(), adminPayload{UID: "10001"})
 	if err != nil {
 		t.Fatalf("set login token: %v", err)
 	}
 	store.refresh[pair.SSID] = "another-token-id"
 
-	if _, err = handler.RefreshAccessToken(context.Background(), pair.RefreshToken); !errors.Is(err, ErrRefreshTokenInvalid) {
+	if _, err = manager.RefreshAccessToken(context.Background(), pair.RefreshToken); !errors.Is(err, ErrRefreshTokenInvalid) {
 		t.Fatalf("expect invalid refresh token, got %v", err)
 	}
 }

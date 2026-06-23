@@ -8,37 +8,37 @@ import (
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
-var _ Handler[struct{}] = (*DefaultHandler[struct{}])(nil)
+var _ Manager[struct{}] = (*DefaultManager[struct{}])(nil)
 
-// DefaultHandler 是 Handler 的默认实现.
+// DefaultManager 是 Manager 的默认实现.
 //
 // 它负责签发 access token, 签发 refresh token, 校验 token, 检查服务端状态,
 // 但不关心 token 来自 HTTP Header, Cookie, gRPC metadata 还是其它地方.
-type DefaultHandler[T any] struct {
+type DefaultManager[T any] struct {
 	cfg Config
 }
 
-// NewHandler 创建默认 JWT Handler.
+// NewManager 创建默认 JWT Manager.
 //
 // T 是业务登录数据类型, jwtx 会自动把它放进 JWT 的 data 字段中.
-func NewHandler[T any](opts ...Option) (*DefaultHandler[T], error) {
+func NewManager[T any](opts ...Option) (*DefaultManager[T], error) {
 	cfg := defaultConfig(opts...)
-	return &DefaultHandler[T]{cfg: cfg}, nil
+	return &DefaultManager[T]{cfg: cfg}, nil
 }
 
-// MustNewHandler 创建默认 JWT Handler, 失败时 panic.
+// MustNewManager 创建默认 JWT Manager, 失败时 panic.
 //
 // 它适合在应用启动初始化阶段使用, 让配置错误尽早暴露.
-func MustNewHandler[T any](opts ...Option) *DefaultHandler[T] {
-	handler, err := NewHandler[T](opts...)
+func MustNewManager[T any](opts ...Option) *DefaultManager[T] {
+	manager, err := NewManager[T](opts...)
 	if err != nil {
 		panic(err)
 	}
-	return handler
+	return manager
 }
 
 // SetLoginToken 登录成功后签发 access token 和 refresh token, 并保存 refresh token jti.
-func (h *DefaultHandler[T]) SetLoginToken(ctx context.Context, payload T, opts ...IssueOption) (TokenPair, error) {
+func (h *DefaultManager[T]) SetLoginToken(ctx context.Context, payload T, opts ...IssueOption) (TokenPair, error) {
 	issueOpts := issueOptions{}
 	for _, opt := range opts {
 		opt(&issueOpts)
@@ -74,7 +74,7 @@ func (h *DefaultHandler[T]) SetLoginToken(ctx context.Context, payload T, opts .
 }
 
 // SetAccessToken 根据已有 session 重新签发 access token.
-func (h *DefaultHandler[T]) SetAccessToken(ctx context.Context, session Session[T]) (string, error) {
+func (h *DefaultManager[T]) SetAccessToken(ctx context.Context, session Session[T]) (string, error) {
 	if session.SSID == "" {
 		session.SSID = h.cfg.SSIDGenerator()
 	}
@@ -85,7 +85,7 @@ func (h *DefaultHandler[T]) SetAccessToken(ctx context.Context, session Session[
 }
 
 // CheckAccessToken 校验 access token, 并检查当前 ssid 是否已经被主动失效.
-func (h *DefaultHandler[T]) CheckAccessToken(ctx context.Context, token string) (Session[T], error) {
+func (h *DefaultManager[T]) CheckAccessToken(ctx context.Context, token string) (Session[T], error) {
 	claims, err := h.verify(token, h.cfg.AccessTokenKey)
 	if err != nil {
 		return Session[T]{}, err
@@ -101,7 +101,7 @@ func (h *DefaultHandler[T]) CheckAccessToken(ctx context.Context, token string) 
 }
 
 // RefreshAccessToken 校验 refresh token, 确认 refresh token 仍有效后签发新的 access token.
-func (h *DefaultHandler[T]) RefreshAccessToken(ctx context.Context, refreshToken string) (string, error) {
+func (h *DefaultManager[T]) RefreshAccessToken(ctx context.Context, refreshToken string) (string, error) {
 	claims, err := h.verify(refreshToken, h.cfg.RefreshTokenKey)
 	if err != nil {
 		return "", err
@@ -126,7 +126,7 @@ func (h *DefaultHandler[T]) RefreshAccessToken(ctx context.Context, refreshToken
 // ClearToken 主动失效当前 access token 对应的登录会话.
 //
 // 它会解析 access token 中的 ssid, 并把 ssid 写入 Store 的失效标记.
-func (h *DefaultHandler[T]) ClearToken(ctx context.Context, accessToken string) error {
+func (h *DefaultManager[T]) ClearToken(ctx context.Context, accessToken string) error {
 	claims, err := h.verify(accessToken, h.cfg.AccessTokenKey, jwtv5.WithoutClaimsValidation())
 	if err != nil {
 		return err
@@ -141,7 +141,7 @@ func (h *DefaultHandler[T]) ClearToken(ctx context.Context, accessToken string) 
 }
 
 // newTokenClaims 根据 session 和有效期创建待签发的 JWT 声明.
-func (h *DefaultHandler[T]) newTokenClaims(session Session[T], tokenID string, issuedAt time.Time, expiresAt time.Time) *tokenClaims[T] {
+func (h *DefaultManager[T]) newTokenClaims(session Session[T], tokenID string, issuedAt time.Time, expiresAt time.Time) *tokenClaims[T] {
 	issuer := session.Issuer
 	if issuer == "" {
 		issuer = h.cfg.Issuer
@@ -160,13 +160,13 @@ func (h *DefaultHandler[T]) newTokenClaims(session Session[T], tokenID string, i
 }
 
 // sign 使用指定密钥签发 JWT 字符串.
-func (h *DefaultHandler[T]) sign(claims *tokenClaims[T], key []byte) (string, error) {
+func (h *DefaultManager[T]) sign(claims *tokenClaims[T], key []byte) (string, error) {
 	token := jwtv5.NewWithClaims(h.cfg.SigningMethod, claims)
 	return token.SignedString(key)
 }
 
 // verify 使用指定密钥校验 JWT 字符串并解析业务登录数据.
-func (h *DefaultHandler[T]) verify(token string, key []byte, opts ...jwtv5.ParserOption) (*tokenClaims[T], error) {
+func (h *DefaultManager[T]) verify(token string, key []byte, opts ...jwtv5.ParserOption) (*tokenClaims[T], error) {
 	if token == "" {
 		return nil, ErrInvalidToken
 	}
