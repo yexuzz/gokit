@@ -13,7 +13,7 @@ var _ jwtx.Store = (*Store)(nil)
 
 const (
 	// defaultPrefix 是 Redis key 的默认前缀.
-	defaultPrefix = "jwtx:"
+	defaultPrefix = "jwt:"
 )
 
 // Store 是基于 Redis 的 jwtx.Store 实现.
