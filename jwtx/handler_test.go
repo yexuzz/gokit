@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// adminClaims 模拟业务系统自定义的登录 claims.
-type adminClaims struct {
-	BaseClaims
+// adminPayload 模拟业务系统自定义的登录数据.
+type adminPayload struct {
 	UID      string `json:"uid"`
 	Username string `json:"username"`
 }
@@ -18,19 +17,19 @@ type adminClaims struct {
 func TestDefaultHandler(t *testing.T) {
 	store := newFakeStore()
 	ids := []string{"ssid-1", "access-1", "refresh-1", "access-2"}
-	handler, err := NewHandler(func() *adminClaims { return &adminClaims{} },
-		WithAccessTokenKey[*adminClaims]([]byte("access-secret")),
-		WithRefreshTokenKey[*adminClaims]([]byte("refresh-secret")),
-		WithStore[*adminClaims](store),
-		WithIssuer[*adminClaims]("gokit"),
-		WithExpiration[*adminClaims](time.Hour, 24*time.Hour),
-		WithNow[*adminClaims](func() time.Time {
-			return time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
+	handler, err := NewHandler[adminPayload](
+		WithAccessTokenKey([]byte("access-secret")),
+		WithRefreshTokenKey([]byte("refresh-secret")),
+		WithStore(store),
+		WithIssuer("gokit"),
+		WithExpiration(time.Hour, 24*time.Hour),
+		WithNow(func() time.Time {
+			return time.Date(2099, 6, 23, 12, 0, 0, 0, time.UTC)
 		}),
-		WithSSIDGenerator[*adminClaims](func() string {
+		WithSSIDGenerator(func() string {
 			return popID(&ids)
 		}),
-		WithTokenIDGenerator[*adminClaims](func() string {
+		WithTokenIDGenerator(func() string {
 			return popID(&ids)
 		}),
 	)
@@ -38,10 +37,10 @@ func TestDefaultHandler(t *testing.T) {
 		t.Fatalf("new handler: %v", err)
 	}
 
-	pair, err := handler.SetLoginToken(context.Background(), &adminClaims{
+	pair, err := handler.SetLoginToken(context.Background(), adminPayload{
 		UID:      "10001",
 		Username: "admin",
-	})
+	}, WithUserAgent("unit-test"))
 	if err != nil {
 		t.Fatalf("set login token: %v", err)
 	}
@@ -52,27 +51,33 @@ func TestDefaultHandler(t *testing.T) {
 		t.Fatalf("refresh token id not saved: %v", store.refresh)
 	}
 
-	claims, err := handler.CheckAccessToken(context.Background(), pair.AccessToken)
+	session, err := handler.CheckAccessToken(context.Background(), pair.AccessToken)
 	if err != nil {
 		t.Fatalf("check access token: %v", err)
 	}
-	if claims.UID != "10001" || claims.Username != "admin" {
-		t.Fatalf("unexpected claims: %#v", claims)
+	if session.Payload.UID != "10001" || session.Payload.Username != "admin" {
+		t.Fatalf("unexpected payload: %#v", session.Payload)
 	}
-	if claims.GetTokenID() != "access-1" {
-		t.Fatalf("unexpected access token id: %s", claims.GetTokenID())
+	if session.SSID != "ssid-1" || session.TokenID != "access-1" {
+		t.Fatalf("unexpected session: %#v", session)
+	}
+	if session.UserAgent != "unit-test" {
+		t.Fatalf("unexpected user agent: %s", session.UserAgent)
 	}
 
 	newAccessToken, err := handler.RefreshAccessToken(context.Background(), pair.RefreshToken)
 	if err != nil {
 		t.Fatalf("refresh access token: %v", err)
 	}
-	refreshedClaims, err := handler.CheckAccessToken(context.Background(), newAccessToken)
+	refreshedSession, err := handler.CheckAccessToken(context.Background(), newAccessToken)
 	if err != nil {
 		t.Fatalf("check refreshed access token: %v", err)
 	}
-	if refreshedClaims.GetTokenID() != "access-2" {
-		t.Fatalf("unexpected refreshed access token id: %s", refreshedClaims.GetTokenID())
+	if refreshedSession.TokenID != "access-2" {
+		t.Fatalf("unexpected refreshed access token id: %s", refreshedSession.TokenID)
+	}
+	if refreshedSession.Payload.UID != "10001" {
+		t.Fatalf("unexpected refreshed payload: %#v", refreshedSession.Payload)
 	}
 
 	if err = handler.ClearToken(context.Background(), newAccessToken); err != nil {
@@ -86,16 +91,16 @@ func TestDefaultHandler(t *testing.T) {
 // TestRefreshTokenInvalid 验证 refresh token jti 和服务端记录不一致时不能刷新.
 func TestRefreshTokenInvalid(t *testing.T) {
 	store := newFakeStore()
-	handler, err := NewHandler(func() *adminClaims { return &adminClaims{} },
-		WithAccessTokenKey[*adminClaims]([]byte("access-secret")),
-		WithRefreshTokenKey[*adminClaims]([]byte("refresh-secret")),
-		WithStore[*adminClaims](store),
+	handler, err := NewHandler[adminPayload](
+		WithAccessTokenKey([]byte("access-secret")),
+		WithRefreshTokenKey([]byte("refresh-secret")),
+		WithStore(store),
 	)
 	if err != nil {
 		t.Fatalf("new handler: %v", err)
 	}
 
-	pair, err := handler.SetLoginToken(context.Background(), &adminClaims{UID: "10001"})
+	pair, err := handler.SetLoginToken(context.Background(), adminPayload{UID: "10001"})
 	if err != nil {
 		t.Fatalf("set login token: %v", err)
 	}
