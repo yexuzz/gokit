@@ -33,11 +33,12 @@ type Option func(*Config)
 
 // Config 定义 Gin JWT 适配层的运行配置.
 type Config struct {
-	AccessTokenHeader  string         // 写入 access token 的响应 header.
-	RefreshTokenHeader string         // 写入 refresh token 的响应 header.
-	TokenExtractor     TokenExtractor // 从请求中提取 token 的函数.
-	ErrorHandler       ErrorHandler   // 中间件校验失败时的响应处理函数.
-	CheckUserAgent     bool           // 是否校验 token 中的 User-Agent.
+	AccessTokenHeader     string         // 写入 access token 的响应 header.
+	RefreshTokenHeader    string         // 写入 refresh token 的响应 header.
+	AccessTokenExtractor  TokenExtractor // 从请求中提取 access token 的函数.
+	RefreshTokenExtractor TokenExtractor // 从请求中提取 refresh token 的函数.
+	ErrorHandler          ErrorHandler   // 中间件校验失败时的响应处理函数.
+	CheckUserAgent        bool           // 是否校验 token 中的 User-Agent.
 }
 
 // WithAccessTokenHeader 设置响应中写入 access token 的 header 名称.
@@ -54,10 +55,17 @@ func WithRefreshTokenHeader(header string) Option {
 	}
 }
 
-// WithTokenExtractor 设置从请求中提取 token 的函数.
-func WithTokenExtractor(extractor TokenExtractor) Option {
+// WithAccessTokenExtractor 设置从请求中提取 access token 的函数.
+func WithAccessTokenExtractor(extractor TokenExtractor) Option {
 	return func(cfg *Config) {
-		cfg.TokenExtractor = extractor
+		cfg.AccessTokenExtractor = extractor
+	}
+}
+
+// WithRefreshTokenExtractor 设置从请求中提取 refresh token 的函数.
+func WithRefreshTokenExtractor(extractor TokenExtractor) Option {
+	return func(cfg *Config) {
+		cfg.RefreshTokenExtractor = extractor
 	}
 }
 
@@ -87,14 +95,21 @@ type Handler[T any] struct {
 // NewHandler 创建 Gin JWT 适配层.
 func NewHandler[T any](manager jwtx.Manager[T], opts ...Option) *Handler[T] {
 	cfg := Config{
-		AccessTokenHeader:  DefaultAccessTokenHeader,
-		RefreshTokenHeader: DefaultRefreshTokenHeader,
-		TokenExtractor:     ExtractBearerToken,
-		ErrorHandler:       defaultErrorHandler,
-		CheckUserAgent:     true,
+		AccessTokenHeader:     DefaultAccessTokenHeader,
+		RefreshTokenHeader:    DefaultRefreshTokenHeader,
+		AccessTokenExtractor:  ExtractBearerToken,
+		RefreshTokenExtractor: ExtractBearerToken,
+		ErrorHandler:          defaultErrorHandler,
+		CheckUserAgent:        true,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	if cfg.AccessTokenExtractor == nil {
+		cfg.AccessTokenExtractor = ExtractBearerToken
+	}
+	if cfg.RefreshTokenExtractor == nil {
+		cfg.RefreshTokenExtractor = ExtractBearerToken
 	}
 	return &Handler[T]{
 		manager: manager,
@@ -115,6 +130,13 @@ func ExtractBearerToken(ctx *gin.Context) string {
 		return strings.TrimSpace(value[len(prefix):])
 	}
 	return value
+}
+
+// ExtractHeader 从指定 header 中提取 token 字符串.
+func ExtractHeader(header string) TokenExtractor {
+	return func(ctx *gin.Context) string {
+		return strings.TrimSpace(ctx.GetHeader(header))
+	}
 }
 
 // SetLoginToken 在登录成功后签发 access token 和 refresh token, 并写入响应 header.
@@ -142,7 +164,7 @@ func (h *Handler[T]) SetAccessToken(ctx *gin.Context, session jwtx.Session[T]) (
 
 // RefreshToken 从当前请求中读取 refresh token, 校验通过后写入新的 access token.
 func (h *Handler[T]) RefreshToken(ctx *gin.Context) (jwtx.AccessToken, error) {
-	refreshToken := h.cfg.TokenExtractor(ctx)
+	refreshToken := h.cfg.RefreshTokenExtractor(ctx)
 	accessToken, err := h.manager.RefreshAccessToken(ctx.Request.Context(), refreshToken)
 	if err != nil {
 		return jwtx.AccessToken{}, err
@@ -153,7 +175,7 @@ func (h *Handler[T]) RefreshToken(ctx *gin.Context) (jwtx.AccessToken, error) {
 
 // CheckToken 校验当前请求中的 access token, 并返回登录会话.
 func (h *Handler[T]) CheckToken(ctx *gin.Context) (jwtx.Session[T], error) {
-	token := h.cfg.TokenExtractor(ctx)
+	token := h.cfg.AccessTokenExtractor(ctx)
 	session, err := h.manager.CheckAccessToken(ctx.Request.Context(), token)
 	if err != nil {
 		return jwtx.Session[T]{}, err
@@ -174,7 +196,7 @@ func (h *Handler[T]) ClearToken(ctx *gin.Context) error {
 	if session, ok := Session[T](ctx); ok {
 		return h.manager.ClearSession(ctx.Request.Context(), session.SSID)
 	}
-	return h.manager.ClearToken(ctx.Request.Context(), h.cfg.TokenExtractor(ctx))
+	return h.manager.ClearToken(ctx.Request.Context(), h.cfg.AccessTokenExtractor(ctx))
 }
 
 // defaultErrorHandler 返回统一的未登录响应.

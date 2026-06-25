@@ -38,7 +38,7 @@ func TestHandler(t *testing.T) {
 			return popID(&ids)
 		}),
 	)
-	handler := NewHandler(manager)
+	handler := NewHandler(manager, WithRefreshTokenExtractor(ExtractHeader("X-Refresh-Token")))
 
 	loginCtx, _ := newTestContext(http.MethodPost, "/login", "", "unit-test")
 	ssid, err := handler.SetLoginToken(loginCtx, adminPayload{
@@ -70,7 +70,8 @@ func TestHandler(t *testing.T) {
 		t.Fatalf("unexpected session: %#v", session)
 	}
 
-	refreshCtx, _ := newTestContext(http.MethodPost, "/refresh", refreshToken, "unit-test")
+	refreshCtx, _ := newTestContext(http.MethodPost, "/refresh", "", "unit-test")
+	refreshCtx.Request.Header.Set("X-Refresh-Token", refreshToken)
 	newAccessToken, err := handler.RefreshToken(refreshCtx)
 	if err != nil {
 		t.Fatalf("refresh token: %v", err)
