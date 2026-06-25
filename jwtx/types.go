@@ -35,6 +35,17 @@ type TokenPair struct {
 	SSID         string // 本次登录会话 ID, 方便业务记录登录日志.
 }
 
+// AccessToken 表示一次 access token 签发结果.
+//
+// 它不仅返回 token 字符串, 也把本次 token 所属的 ssid 和 jti 带给调用方,
+// 避免业务为了拿会话 ID 再反向解析 JWT.
+type AccessToken struct {
+	Token     string    // 短期 access token 字符串.
+	SSID      string    // 本次登录会话 ID.
+	TokenID   string    // 当前 access token 的唯一 ID, 对应 JWT 标准字段 jti.
+	ExpiresAt time.Time // 当前 access token 的过期时间.
+}
+
 // IssueOption 表示签发 token 时可选的会话参数.
 type IssueOption func(*issueOptions)
 
@@ -64,14 +75,16 @@ func WithUserAgent(userAgent string) IssueOption {
 type Manager[T any] interface {
 	// SetLoginToken 登录成功后签发 access token 和 refresh token, 并保存 refresh token 状态.
 	SetLoginToken(ctx context.Context, payload T, opts ...IssueOption) (TokenPair, error)
-	// SetAccessToken 根据已有 session 重新签发 access token.
-	SetAccessToken(ctx context.Context, session Session[T]) (string, error)
+	// SetAccessToken 根据已有 session 重新签发 access token, 并返回本次签发的会话信息.
+	SetAccessToken(ctx context.Context, session Session[T]) (AccessToken, error)
 	// CheckAccessToken 校验 access token, 并检查当前 ssid 是否已经被主动失效.
 	CheckAccessToken(ctx context.Context, token string) (Session[T], error)
-	// RefreshAccessToken 校验 refresh token, 确认 refresh token 仍有效后签发新的 access token.
-	RefreshAccessToken(ctx context.Context, refreshToken string) (string, error)
+	// RefreshAccessToken 校验 refresh token, 确认 refresh token 仍有效后签发新的 access token, 并返回 ssid.
+	RefreshAccessToken(ctx context.Context, refreshToken string) (AccessToken, error)
 	// ClearToken 主动失效当前 access token 对应的登录会话.
 	ClearToken(ctx context.Context, accessToken string) error
+	// ClearSession 按 ssid 主动失效登录会话, 适合已经从上下文拿到用户会话的框架适配层.
+	ClearSession(ctx context.Context, ssid string) error
 }
 
 // Store 定义 jwtx 需要的服务端 token 状态存储能力.

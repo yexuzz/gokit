@@ -67,21 +67,31 @@ func (h *DefaultManager[T]) SetLoginToken(ctx context.Context, payload T, opts .
 		return TokenPair{}, err
 	}
 	return TokenPair{
-		AccessToken:  accessToken,
+		AccessToken:  accessToken.Token,
 		RefreshToken: refreshToken,
-		SSID:         session.SSID,
+		SSID:         accessToken.SSID,
 	}, nil
 }
 
-// SetAccessToken 根据已有 session 重新签发 access token.
-func (h *DefaultManager[T]) SetAccessToken(ctx context.Context, session Session[T]) (string, error) {
+// SetAccessToken 根据已有 session 重新签发 access token, 并返回本次签发的 ssid 和 jti.
+func (h *DefaultManager[T]) SetAccessToken(ctx context.Context, session Session[T]) (AccessToken, error) {
 	if session.SSID == "" {
 		session.SSID = h.cfg.SSIDGenerator()
 	}
 	tokenID := h.cfg.TokenIDGenerator()
 	now := h.cfg.Now()
-	claims := h.newTokenClaims(session, tokenID, now, now.Add(h.cfg.AccessExpiration))
-	return h.sign(claims, h.cfg.AccessTokenKey)
+	expiresAt := now.Add(h.cfg.AccessExpiration)
+	claims := h.newTokenClaims(session, tokenID, now, expiresAt)
+	token, err := h.sign(claims, h.cfg.AccessTokenKey)
+	if err != nil {
+		return AccessToken{}, err
+	}
+	return AccessToken{
+		Token:     token,
+		SSID:      session.SSID,
+		TokenID:   tokenID,
+		ExpiresAt: expiresAt,
+	}, nil
 }
 
 // CheckAccessToken 校验 access token, 并检查当前 ssid 是否已经被主动失效.
@@ -101,24 +111,24 @@ func (h *DefaultManager[T]) CheckAccessToken(ctx context.Context, token string) 
 }
 
 // RefreshAccessToken 校验 refresh token, 确认 refresh token 仍有效后签发新的 access token.
-func (h *DefaultManager[T]) RefreshAccessToken(ctx context.Context, refreshToken string) (string, error) {
+func (h *DefaultManager[T]) RefreshAccessToken(ctx context.Context, refreshToken string) (AccessToken, error) {
 	claims, err := h.verify(refreshToken, h.cfg.RefreshTokenKey)
 	if err != nil {
-		return "", err
+		return AccessToken{}, err
 	}
 	revoked, err := h.cfg.Store.IsSessionRevoked(ctx, claims.SSID)
 	if err != nil {
-		return "", err
+		return AccessToken{}, err
 	}
 	if revoked {
-		return "", ErrSessionRevoked
+		return AccessToken{}, ErrSessionRevoked
 	}
 	valid, err := h.cfg.Store.IsRefreshTokenValid(ctx, claims.SSID, claims.ID)
 	if err != nil {
-		return "", err
+		return AccessToken{}, err
 	}
 	if !valid {
-		return "", ErrRefreshTokenInvalid
+		return AccessToken{}, ErrRefreshTokenInvalid
 	}
 	return h.SetAccessToken(ctx, sessionFromClaims(claims))
 }
@@ -131,6 +141,9 @@ func (h *DefaultManager[T]) ClearToken(ctx context.Context, accessToken string) 
 	if err != nil {
 		return err
 	}
+	if claims.SSID == "" {
+		return ErrInvalidToken
+	}
 	ttl := h.cfg.RefreshExpiration
 	if claims.ExpiresAt != nil {
 		if remain := time.Until(claims.ExpiresAt.Time); remain > 0 && remain > ttl {
@@ -138,6 +151,14 @@ func (h *DefaultManager[T]) ClearToken(ctx context.Context, accessToken string) 
 		}
 	}
 	return h.cfg.Store.RevokeSession(ctx, claims.SSID, ttl)
+}
+
+// ClearSession 按 ssid 主动失效登录会话, 后续同会话 access/refresh token 都不能再使用.
+func (h *DefaultManager[T]) ClearSession(ctx context.Context, ssid string) error {
+	if ssid == "" {
+		return ErrInvalidToken
+	}
+	return h.cfg.Store.RevokeSession(ctx, ssid, h.cfg.RefreshExpiration)
 }
 
 // newTokenClaims 根据 session 和有效期创建待签发的 JWT 声明.

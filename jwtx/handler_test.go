@@ -69,7 +69,13 @@ func TestDefaultManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh access token: %v", err)
 	}
-	refreshedSession, err := manager.CheckAccessToken(context.Background(), newAccessToken)
+	if newAccessToken.SSID != "ssid-1" {
+		t.Fatalf("unexpected refreshed ssid: %s", newAccessToken.SSID)
+	}
+	if newAccessToken.TokenID != "access-2" {
+		t.Fatalf("unexpected refreshed access token id: %s", newAccessToken.TokenID)
+	}
+	refreshedSession, err := manager.CheckAccessToken(context.Background(), newAccessToken.Token)
 	if err != nil {
 		t.Fatalf("check refreshed access token: %v", err)
 	}
@@ -80,10 +86,21 @@ func TestDefaultManager(t *testing.T) {
 		t.Fatalf("unexpected refreshed payload: %#v", refreshedSession.Payload)
 	}
 
-	if err = manager.ClearToken(context.Background(), newAccessToken); err != nil {
+	if err = manager.ClearSession(context.Background(), newAccessToken.SSID); err != nil {
+		t.Fatalf("clear session: %v", err)
+	}
+	if _, err = manager.CheckAccessToken(context.Background(), newAccessToken.Token); !errors.Is(err, ErrSessionRevoked) {
+		t.Fatalf("expect revoked error, got %v", err)
+	}
+
+	pair, err = manager.SetLoginToken(context.Background(), adminPayload{UID: "10002"})
+	if err != nil {
+		t.Fatalf("set second login token: %v", err)
+	}
+	if err = manager.ClearToken(context.Background(), pair.AccessToken); err != nil {
 		t.Fatalf("clear token: %v", err)
 	}
-	if _, err = manager.CheckAccessToken(context.Background(), newAccessToken); !errors.Is(err, ErrSessionRevoked) {
+	if _, err = manager.CheckAccessToken(context.Background(), pair.AccessToken); !errors.Is(err, ErrSessionRevoked) {
 		t.Fatalf("expect revoked error, got %v", err)
 	}
 }
