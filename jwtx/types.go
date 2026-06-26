@@ -12,6 +12,7 @@ import (
 // Data 保存业务自己的登录数据, ssid, jti, exp, iat 等 token 元信息由 jwtx 维护.
 type tokenClaims[T any] struct {
 	SSID      string `json:"ssid"`                 // 本次登录会话 ID.
+	UserID    string `json:"user_id,omitempty"`    // 业务用户 ID, 用于多设备会话管理.
 	UserAgent string `json:"user_agent,omitempty"` // 登录或请求时的 User-Agent, 可由业务自行校验.
 	Data      T      `json:"data"`                 // 业务登录数据.
 	jwtv5.RegisteredClaims
@@ -20,6 +21,7 @@ type tokenClaims[T any] struct {
 // Session 表示校验 token 后得到的登录会话信息.
 type Session[T any] struct {
 	SSID      string    // 本次登录会话 ID.
+	UserID    string    // 业务用户 ID, 用于退出当前用户的全部设备.
 	TokenID   string    // 当前 token 的唯一 ID, 对应 JWT 标准字段 jti.
 	UserAgent string    // 登录或请求时的 User-Agent.
 	Payload   T         // 业务登录数据.
@@ -85,6 +87,10 @@ type Manager[T any] interface {
 	ClearToken(ctx context.Context, accessToken string) error
 	// ClearSession 按 ssid 主动失效登录会话, 适合已经从上下文拿到用户会话的框架适配层.
 	ClearSession(ctx context.Context, ssid string) error
+	// ClearUserSession 按 userID 和 ssid 主动失效一个登录会话, 并从用户会话集合中移除.
+	ClearUserSession(ctx context.Context, userID string, ssid string) error
+	// ClearUserSessions 主动失效指定用户的全部登录会话.
+	ClearUserSessions(ctx context.Context, userID string) error
 }
 
 // Store 定义 jwtx 需要的服务端 token 状态存储能力.
@@ -101,4 +107,19 @@ type Store interface {
 	SaveRefreshTokenID(ctx context.Context, ssid string, tokenID string, ttl time.Duration) error
 	// IsRefreshTokenValid 检查传入的 refresh token jti 是否仍是当前登录会话的有效 jti.
 	IsRefreshTokenValid(ctx context.Context, ssid string, tokenID string) (bool, error)
+}
+
+// UserSessionStore 定义按用户管理多设备会话集合的扩展存储能力.
+//
+// 一个具体 Store 可以同时实现 Store 和 UserSessionStore. jwtx 会在登录成功时自动记录 userID -> ssid,
+// 在需要退出全部设备时再通过这个扩展接口查询并清理全部 ssid.
+type UserSessionStore interface {
+	// AddUserSession 把 ssid 加入指定用户的会话集合, 用于后续按用户退出全部设备.
+	AddUserSession(ctx context.Context, userID string, ssid string, ttl time.Duration) error
+	// RemoveUserSession 从指定用户的会话集合中移除 ssid, 用于当前设备退出后的集合清理.
+	RemoveUserSession(ctx context.Context, userID string, ssid string) error
+	// ListUserSessions 查询指定用户当前记录的全部 ssid.
+	ListUserSessions(ctx context.Context, userID string) ([]string, error)
+	// ClearUserSessions 清空指定用户的会话集合.
+	ClearUserSessions(ctx context.Context, userID string) error
 }

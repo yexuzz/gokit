@@ -28,6 +28,9 @@ func TestHandler(t *testing.T) {
 		jwtx.WithAccessTokenKey([]byte("access-secret")),
 		jwtx.WithRefreshTokenKey([]byte("refresh-secret")),
 		jwtx.WithStore(store),
+		jwtx.WithUserIDExtractor(func(payload adminPayload) string {
+			return payload.UID
+		}),
 		jwtx.WithNow(func() time.Time {
 			return time.Date(2099, 6, 25, 12, 0, 0, 0, time.UTC)
 		}),
@@ -69,6 +72,9 @@ func TestHandler(t *testing.T) {
 	if session.SSID != "ssid-1" || session.Payload.UID != "10001" {
 		t.Fatalf("unexpected session: %#v", session)
 	}
+	if session.UserID != "10001" {
+		t.Fatalf("unexpected session user id: %s", session.UserID)
+	}
 
 	refreshCtx, _ := newTestContext(http.MethodPost, "/refresh", "", "unit-test")
 	refreshCtx.Request.Header.Set("X-Refresh-Token", refreshToken)
@@ -88,6 +94,56 @@ func TestHandler(t *testing.T) {
 	}
 	if _, err = manager.CheckAccessToken(context.Background(), newAccessToken.Token); !errors.Is(err, jwtx.ErrSessionRevoked) {
 		t.Fatalf("expect revoked session, got %v", err)
+	}
+}
+
+// TestHandlerClearUserSessions 验证 Gin 适配层可以清除当前用户的全部设备会话.
+func TestHandlerClearUserSessions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	store := newFakeStore()
+	ids := []string{"ssid-web", "access-web", "refresh-web", "ssid-phone", "access-phone", "refresh-phone"}
+	manager := jwtx.MustNewManager[adminPayload](
+		jwtx.WithAccessTokenKey([]byte("access-secret")),
+		jwtx.WithRefreshTokenKey([]byte("refresh-secret")),
+		jwtx.WithStore(store),
+		jwtx.WithUserIDExtractor(func(payload adminPayload) string {
+			return payload.UID
+		}),
+		jwtx.WithSSIDGenerator(func() string {
+			return popID(&ids)
+		}),
+		jwtx.WithTokenIDGenerator(func() string {
+			return popID(&ids)
+		}),
+	)
+	handler := NewHandler(manager)
+
+	webCtx, _ := newTestContext(http.MethodPost, "/login", "", "unit-test")
+	if _, err := handler.SetLoginToken(webCtx, adminPayload{UID: "10001", Username: "admin"}); err != nil {
+		t.Fatalf("set web login token: %v", err)
+	}
+	webAccessToken := webCtx.Writer.Header().Get(DefaultAccessTokenHeader)
+
+	phoneCtx, _ := newTestContext(http.MethodPost, "/login", "", "unit-test")
+	if _, err := handler.SetLoginToken(phoneCtx, adminPayload{UID: "10001", Username: "admin"}); err != nil {
+		t.Fatalf("set phone login token: %v", err)
+	}
+	phoneAccessToken := phoneCtx.Writer.Header().Get(DefaultAccessTokenHeader)
+
+	authCtx, _ := newTestContext(http.MethodPost, "/password", "Bearer "+webAccessToken, "unit-test")
+	NewLoginMiddlewareBuilder(handler).Build()(authCtx)
+	if authCtx.IsAborted() {
+		t.Fatal("middleware should allow valid token")
+	}
+	if err := handler.ClearUserSessions(authCtx); err != nil {
+		t.Fatalf("clear user sessions: %v", err)
+	}
+	if _, err := manager.CheckAccessToken(context.Background(), webAccessToken); !errors.Is(err, jwtx.ErrSessionRevoked) {
+		t.Fatalf("expect web session revoked, got %v", err)
+	}
+	if _, err := manager.CheckAccessToken(context.Background(), phoneAccessToken); !errors.Is(err, jwtx.ErrSessionRevoked) {
+		t.Fatalf("expect phone session revoked, got %v", err)
 	}
 }
 
@@ -143,15 +199,17 @@ func TestLoginMiddlewareBuilderIgnorePaths(t *testing.T) {
 
 // fakeStore 是测试用的 token 状态存储.
 type fakeStore struct {
-	revoked map[string]bool
-	refresh map[string]string
+	revoked      map[string]bool
+	refresh      map[string]string
+	userSessions map[string]map[string]bool
 }
 
 // newFakeStore 创建测试用的内存 Store.
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		revoked: map[string]bool{},
-		refresh: map[string]string{},
+		revoked:      map[string]bool{},
+		refresh:      map[string]string{},
+		userSessions: map[string]map[string]bool{},
 	}
 }
 
@@ -175,6 +233,36 @@ func (s *fakeStore) SaveRefreshTokenID(ctx context.Context, ssid string, tokenID
 // IsRefreshTokenValid 检查测试 refresh token jti 是否仍然有效.
 func (s *fakeStore) IsRefreshTokenValid(ctx context.Context, ssid string, tokenID string) (bool, error) {
 	return s.refresh[ssid] == tokenID, nil
+}
+
+// AddUserSession 记录测试用户和 ssid 的绑定关系.
+func (s *fakeStore) AddUserSession(ctx context.Context, userID string, ssid string, ttl time.Duration) error {
+	if s.userSessions[userID] == nil {
+		s.userSessions[userID] = map[string]bool{}
+	}
+	s.userSessions[userID][ssid] = true
+	return nil
+}
+
+// RemoveUserSession 移除测试用户和 ssid 的绑定关系.
+func (s *fakeStore) RemoveUserSession(ctx context.Context, userID string, ssid string) error {
+	delete(s.userSessions[userID], ssid)
+	return nil
+}
+
+// ListUserSessions 查询测试用户当前记录的全部 ssid.
+func (s *fakeStore) ListUserSessions(ctx context.Context, userID string) ([]string, error) {
+	ssids := make([]string, 0, len(s.userSessions[userID]))
+	for ssid := range s.userSessions[userID] {
+		ssids = append(ssids, ssid)
+	}
+	return ssids, nil
+}
+
+// ClearUserSessions 清空测试用户的全部 ssid.
+func (s *fakeStore) ClearUserSessions(ctx context.Context, userID string) error {
+	delete(s.userSessions, userID)
+	return nil
 }
 
 // newTestContext 创建带 Authorization 和 User-Agent 的 Gin 测试上下文.

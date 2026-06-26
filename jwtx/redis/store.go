@@ -9,7 +9,10 @@ import (
 	"github.com/yexuzz/gokit/jwtx"
 )
 
-var _ jwtx.Store = (*Store)(nil)
+var (
+	_ jwtx.Store            = (*Store)(nil)
+	_ jwtx.UserSessionStore = (*Store)(nil)
+)
 
 const (
 	// defaultPrefix 是 Redis key 的默认前缀.
@@ -77,6 +80,30 @@ func (s *Store) IsRefreshTokenValid(ctx context.Context, ssid string, tokenID st
 	return val == tokenID, nil
 }
 
+// AddUserSession 把 ssid 写入用户会话集合, 用于支持退出全部设备.
+func (s *Store) AddUserSession(ctx context.Context, userID string, ssid string, ttl time.Duration) error {
+	key := s.userSessionsKey(userID)
+	if err := s.client.SAdd(ctx, key, ssid).Err(); err != nil {
+		return err
+	}
+	return s.client.Expire(ctx, key, ttl).Err()
+}
+
+// RemoveUserSession 从用户会话集合中移除指定 ssid.
+func (s *Store) RemoveUserSession(ctx context.Context, userID string, ssid string) error {
+	return s.client.SRem(ctx, s.userSessionsKey(userID), ssid).Err()
+}
+
+// ListUserSessions 查询指定用户当前记录的全部 ssid.
+func (s *Store) ListUserSessions(ctx context.Context, userID string) ([]string, error) {
+	return s.client.SMembers(ctx, s.userSessionsKey(userID)).Result()
+}
+
+// ClearUserSessions 清空指定用户的会话集合.
+func (s *Store) ClearUserSessions(ctx context.Context, userID string) error {
+	return s.client.Del(ctx, s.userSessionsKey(userID)).Err()
+}
+
 // revokedKey 生成会话失效标记的 Redis key.
 func (s *Store) revokedKey(ssid string) string {
 	return s.prefix + "revoked:" + ssid
@@ -85,4 +112,9 @@ func (s *Store) revokedKey(ssid string) string {
 // refreshKey 生成 refresh token jti 的 Redis key.
 func (s *Store) refreshKey(ssid string) string {
 	return s.prefix + "refresh:" + ssid
+}
+
+// userSessionsKey 生成用户会话集合的 Redis key.
+func (s *Store) userSessionsKey(userID string) string {
+	return s.prefix + "user_sessions:" + userID
 }

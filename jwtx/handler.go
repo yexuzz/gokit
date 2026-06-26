@@ -48,6 +48,7 @@ func (h *DefaultManager[T]) SetLoginToken(ctx context.Context, payload T, opts .
 	}
 	session := Session[T]{
 		SSID:      issueOpts.ssid,
+		UserID:    h.userID(payload),
 		UserAgent: issueOpts.userAgent,
 		Payload:   payload,
 		Issuer:    h.cfg.Issuer,
@@ -66,6 +67,13 @@ func (h *DefaultManager[T]) SetLoginToken(ctx context.Context, payload T, opts .
 	if err = h.cfg.Store.SaveRefreshTokenID(ctx, session.SSID, refreshTokenID, h.cfg.RefreshExpiration); err != nil {
 		return TokenPair{}, err
 	}
+	if session.UserID != "" {
+		if store, ok := h.cfg.Store.(UserSessionStore); ok {
+			if err = store.AddUserSession(ctx, session.UserID, session.SSID, h.cfg.RefreshExpiration); err != nil {
+				return TokenPair{}, err
+			}
+		}
+	}
 	return TokenPair{
 		AccessToken:  accessToken.Token,
 		RefreshToken: refreshToken,
@@ -77,6 +85,9 @@ func (h *DefaultManager[T]) SetLoginToken(ctx context.Context, payload T, opts .
 func (h *DefaultManager[T]) SetAccessToken(ctx context.Context, session Session[T]) (AccessToken, error) {
 	if session.SSID == "" {
 		session.SSID = h.cfg.SSIDGenerator()
+	}
+	if session.UserID == "" {
+		session.UserID = h.userID(session.Payload)
 	}
 	tokenID := h.cfg.TokenIDGenerator()
 	now := h.cfg.Now()
@@ -150,7 +161,7 @@ func (h *DefaultManager[T]) ClearToken(ctx context.Context, accessToken string) 
 			ttl = remain
 		}
 	}
-	return h.cfg.Store.RevokeSession(ctx, claims.SSID, ttl)
+	return h.clearSession(ctx, claims.UserID, claims.SSID, ttl)
 }
 
 // ClearSession 按 ssid 主动失效登录会话, 后续同会话 access/refresh token 都不能再使用.
@@ -161,6 +172,50 @@ func (h *DefaultManager[T]) ClearSession(ctx context.Context, ssid string) error
 	return h.cfg.Store.RevokeSession(ctx, ssid, h.cfg.RefreshExpiration)
 }
 
+// ClearUserSession 按 userID 和 ssid 主动失效一个登录会话, 并从用户会话集合中移除.
+func (h *DefaultManager[T]) ClearUserSession(ctx context.Context, userID string, ssid string) error {
+	if ssid == "" {
+		return ErrInvalidToken
+	}
+	return h.clearSession(ctx, userID, ssid, h.cfg.RefreshExpiration)
+}
+
+// ClearUserSessions 主动失效指定用户的全部登录会话.
+func (h *DefaultManager[T]) ClearUserSessions(ctx context.Context, userID string) error {
+	store, ok := h.cfg.Store.(UserSessionStore)
+	if !ok {
+		return ErrUserSessionStoreUnsupported
+	}
+
+	ssids, err := store.ListUserSessions(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, ssid := range ssids {
+		if ssid == "" {
+			continue
+		}
+		if err = h.cfg.Store.RevokeSession(ctx, ssid, h.cfg.RefreshExpiration); err != nil {
+			return err
+		}
+	}
+	return store.ClearUserSessions(ctx, userID)
+}
+
+// clearSession 主动失效一个登录会话, 并在 userID 存在时维护用户会话集合.
+func (h *DefaultManager[T]) clearSession(ctx context.Context, userID string, ssid string, ttl time.Duration) error {
+	if err := h.cfg.Store.RevokeSession(ctx, ssid, ttl); err != nil {
+		return err
+	}
+	if userID == "" {
+		return nil
+	}
+	if store, ok := h.cfg.Store.(UserSessionStore); ok {
+		return store.RemoveUserSession(ctx, userID, ssid)
+	}
+	return nil
+}
+
 // newTokenClaims 根据 session 和有效期创建待签发的 JWT 声明.
 func (h *DefaultManager[T]) newTokenClaims(session Session[T], tokenID string, issuedAt time.Time, expiresAt time.Time) *tokenClaims[T] {
 	issuer := session.Issuer
@@ -169,6 +224,7 @@ func (h *DefaultManager[T]) newTokenClaims(session Session[T], tokenID string, i
 	}
 	return &tokenClaims[T]{
 		SSID:      session.SSID,
+		UserID:    session.UserID,
 		UserAgent: session.UserAgent,
 		Data:      session.Payload,
 		RegisteredClaims: jwtv5.RegisteredClaims{
@@ -208,6 +264,7 @@ func (h *DefaultManager[T]) verify(token string, key []byte, opts ...jwtv5.Parse
 func sessionFromClaims[T any](claims *tokenClaims[T]) Session[T] {
 	session := Session[T]{
 		SSID:      claims.SSID,
+		UserID:    claims.UserID,
 		TokenID:   claims.ID,
 		UserAgent: claims.UserAgent,
 		Payload:   claims.Data,
@@ -220,4 +277,12 @@ func sessionFromClaims[T any](claims *tokenClaims[T]) Session[T] {
 		session.ExpiresAt = claims.ExpiresAt.Time
 	}
 	return session
+}
+
+// userID 从业务 payload 中提取用户 ID, 未配置时返回空字符串.
+func (h *DefaultManager[T]) userID(payload T) string {
+	if h.cfg.UserIDExtractor == nil {
+		return ""
+	}
+	return h.cfg.UserIDExtractor(payload)
 }

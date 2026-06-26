@@ -194,9 +194,25 @@ func (h *Handler[T]) ClearToken(ctx *gin.Context) error {
 	ctx.Header(h.cfg.AccessTokenHeader, "")
 	ctx.Header(h.cfg.RefreshTokenHeader, "")
 	if session, ok := Session[T](ctx); ok {
-		return h.manager.ClearSession(ctx.Request.Context(), session.SSID)
+		return h.manager.ClearUserSession(ctx.Request.Context(), session.UserID, session.SSID)
 	}
 	return h.manager.ClearToken(ctx.Request.Context(), h.cfg.AccessTokenExtractor(ctx))
+}
+
+// ClearUserSessions 清除当前登录用户的全部设备会话.
+func (h *Handler[T]) ClearUserSessions(ctx *gin.Context) error {
+	session, ok := Session[T](ctx)
+	if !ok {
+		return nil
+	}
+	return h.ClearUserSessionsByUserID(ctx, session.UserID)
+}
+
+// ClearUserSessionsByUserID 清除指定用户的全部设备会话.
+func (h *Handler[T]) ClearUserSessionsByUserID(ctx *gin.Context, userID string) error {
+	ctx.Header(h.cfg.AccessTokenHeader, "")
+	ctx.Header(h.cfg.RefreshTokenHeader, "")
+	return h.manager.ClearUserSessions(ctx.Request.Context(), userID)
 }
 
 // defaultErrorHandler 返回统一的未登录响应.

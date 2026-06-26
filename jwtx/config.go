@@ -10,16 +10,17 @@ import (
 
 // Config 定义 JWT Manager 的运行配置.
 type Config struct {
-	AccessTokenKey    []byte              // access token 签名密钥.
-	RefreshTokenKey   []byte              // refresh token 签名密钥.
-	AccessExpiration  time.Duration       // access token 有效期.
-	RefreshExpiration time.Duration       // refresh token 有效期.
-	SigningMethod     jwtv5.SigningMethod // JWT 签名算法, 默认 HS256.
-	Issuer            string              // JWT 签发方.
-	Store             Store               // token 状态存储, 默认 NoopStore.
-	Now               func() time.Time    // 当前时间函数, 主要用于测试.
-	SSIDGenerator     func() string       // ssid 生成函数.
-	TokenIDGenerator  func() string       // jti 生成函数.
+	AccessTokenKey    []byte                   // access token 签名密钥.
+	RefreshTokenKey   []byte                   // refresh token 签名密钥.
+	AccessExpiration  time.Duration            // access token 有效期.
+	RefreshExpiration time.Duration            // refresh token 有效期.
+	SigningMethod     jwtv5.SigningMethod      // JWT 签名算法, 默认 HS256.
+	Issuer            string                   // JWT 签发方.
+	Store             Store                    // token 状态存储, 默认 NoopStore.
+	UserIDExtractor   func(payload any) string // 从业务 payload 中提取用户 ID, 用于维护用户多设备会话集合.
+	Now               func() time.Time         // 当前时间函数, 主要用于测试.
+	SSIDGenerator     func() string            // ssid 生成函数.
+	TokenIDGenerator  func() string            // jti 生成函数.
 }
 
 // Option 用于调整 JWT Manager 配置.
@@ -65,6 +66,25 @@ func WithIssuer(issuer string) Option {
 func WithStore(store Store) Option {
 	return func(cfg *Config) {
 		cfg.Store = store
+	}
+}
+
+// WithUserIDExtractor 设置从业务 payload 中提取用户 ID 的函数.
+//
+// 配置后, jwtx 会在登录成功时维护 userID -> ssid 集合, 从而支持退出指定用户的全部设备.
+func WithUserIDExtractor[T any](extractor func(payload T) string) Option {
+	return func(cfg *Config) {
+		if extractor == nil {
+			cfg.UserIDExtractor = nil
+			return
+		}
+		cfg.UserIDExtractor = func(payload any) string {
+			val, ok := payload.(T)
+			if !ok {
+				return ""
+			}
+			return extractor(val)
+		}
 	}
 }
 
