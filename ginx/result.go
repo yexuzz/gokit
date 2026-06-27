@@ -32,13 +32,13 @@ func (r Result) WithData(data any) Result {
 }
 
 type PageRequest struct {
-	Page     int `form:"page" json:"page"`
-	PageSize int `form:"page_size" json:"page_size"`
+	Page     int `form:"page" json:"page"`           // 当前页
+	PageSize int `form:"page_size" json:"page_size"` // 每页显示条数
 }
 
 type PageResponse[T any] struct {
-	Page     int   `json:"page"`
-	PageSize int   `json:"page_size"`
-	Total    int64 `json:"total"`
-	Items    []T   `json:"items"`
+	Page     int   `json:"page"`      // 当前页
+	PageSize int   `json:"page_size"` // 每页显示条数
+	Total    int64 `json:"total"`     // 总条数
+	Items    []T   `json:"items"`     // 列表数据
 }
