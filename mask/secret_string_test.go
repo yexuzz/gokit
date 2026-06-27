@@ -2,42 +2,66 @@ package mask
 
 import "testing"
 
-// TestSecretStringMaskWith 验证 SecretString 支持自定义左右保留和中间替换长度.
-func TestSecretStringMaskWith(t *testing.T) {
-	got := SecretString("123456789012").MaskWith(4, 5, 3, "=")
-	if got != "1234=====012" {
+// TestLeft 验证 Left 会替换左侧指定字符数.
+func TestLeft(t *testing.T) {
+	got := SecretString("123456789012").Left(4, "*")
+	if got != "****56789012" {
 		t.Fatalf("unexpected masked value: %s", got)
 	}
 }
 
-// TestMaskWithMiddleZero 验证 middle 小于等于 0 时替换左右保留区之间的全部字符.
-func TestMaskWithMiddleZero(t *testing.T) {
-	got := MaskWith("13812345678", 3, 0, 4, "*")
+// TestLeftShortValue 验证 Left 在字符串长度不足时会全部替换.
+func TestLeftShortValue(t *testing.T) {
+	got := SecretString("abc").Left(4, "*")
+	if got != "***" {
+		t.Fatalf("unexpected masked value: %s", got)
+	}
+}
+
+// TestMiddle 验证 Middle 会替换中间指定字符数.
+func TestMiddle(t *testing.T) {
+	got := SecretString("13812345678").Middle(4, "*")
 	if got != "138****5678" {
 		t.Fatalf("unexpected masked value: %s", got)
 	}
 }
 
-// TestMaskWithUnicode 验证脱敏按 rune 处理, 不会切坏多字节字符.
-func TestMaskWithUnicode(t *testing.T) {
-	got := MaskWith("你好世界abc", 1, 3, 2, "x")
-	if got != "你xxxabc" {
+// TestMiddleShortValue 验证 Middle 在字符串长度不足时会全部替换.
+func TestMiddleShortValue(t *testing.T) {
+	got := SecretString("abc").Middle(4, "*")
+	if got != "***" {
 		t.Fatalf("unexpected masked value: %s", got)
 	}
 }
 
-// TestMaskWithShortValue 验证短字符串不会因为左右保留长度过大而被破坏.
-func TestMaskWithShortValue(t *testing.T) {
-	got := MaskWith("abc", 4, 5, 3, "*")
-	if got != "abc" {
+// TestRight 验证 Right 会替换右侧指定字符数.
+func TestRight(t *testing.T) {
+	got := SecretString("123456789012").Right(4, "*")
+	if got != "12345678****" {
 		t.Fatalf("unexpected masked value: %s", got)
 	}
 }
 
-// TestSecretStringString 验证默认 String 方法适合手机号一类的常见展示.
-func TestSecretStringString(t *testing.T) {
-	got := SecretString("13812345678").String()
-	if got != "138****5678" {
+// TestRightShortValue 验证 Right 在字符串长度不足时会全部替换.
+func TestRightShortValue(t *testing.T) {
+	got := SecretString("abc").Right(4, "*")
+	if got != "***" {
 		t.Fatalf("unexpected masked value: %s", got)
+	}
+}
+
+// TestUnicode 验证脱敏按 rune 处理, 不会切坏多字节字符.
+func TestUnicode(t *testing.T) {
+	left := SecretString("你好世界abc").Left(2, "x")
+	if left != "xx世界abc" {
+		t.Fatalf("unexpected left masked value: %s", left)
+	}
+	middle := SecretString("你好世界abc").Middle(4, "x")
+	if middle != "你xxxxbc" {
+		t.Fatalf("unexpected middle masked value: %s", middle)
+	}
+	right := SecretString("你好世界abc").Right(2, "x")
+	if right != "你好世界axx" {
+		t.Fatalf("unexpected right masked value: %s", right)
 	}
 }

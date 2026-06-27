@@ -10,68 +10,72 @@ const (
 // SecretString 表示需要脱敏展示的字符串.
 type SecretString string
 
-// Raw 返回未脱敏的原始字符串.
-func (s SecretString) Raw() string {
-	return string(s)
+func NewSecretString(s string) SecretString {
+	return SecretString(s)
 }
 
-// String 返回默认脱敏展示文本.
-func (s SecretString) String() string {
-	return s.Mask(3, 0, 4)
+// Left 替换左侧最多 count 个字符, 字符数不足时会全部替换.
+func (s SecretString) Left(count int, mask string) string {
+	return left(string(s), count, mask)
 }
 
-// Mask 使用默认替换字符脱敏字符串.
-//
-// left 表示左侧保留字符数, middle 表示中间替换字符数, right 表示右侧保留字符数.
-// middle 小于等于 0 时会替换左侧和右侧之间的全部字符.
-func (s SecretString) Mask(left int, middle int, right int) string {
-	return s.MaskWith(left, middle, right, DefaultMask)
+// Middle 替换中间最多 count 个字符, 字符数不足时会全部替换.
+func (s SecretString) Middle(count int, mask string) string {
+	return middle(string(s), count, mask)
 }
 
-// MaskWith 使用指定替换字符脱敏字符串.
-//
-// 例如 MaskWith(4, 5, 3, "=") 表示保留左侧 4 个字符, 中间 5 个字符替换为 "=", 右侧保留 3 个字符.
-func (s SecretString) MaskWith(left int, middle int, right int, mask string) string {
-	return MaskWith(string(s), left, middle, right, mask)
+// Right 替换右侧最多 count 个字符, 字符数不足时会全部替换.
+func (s SecretString) Right(count int, mask string) string {
+	return right(string(s), count, mask)
 }
 
-// Mask 使用默认替换字符脱敏字符串.
-func Mask(value string, left int, middle int, right int) string {
-	return MaskWith(value, left, middle, right, DefaultMask)
-}
-
-// MaskWith 使用指定替换字符脱敏字符串.
-//
-// left 和 right 表示两侧保留字符数. middle 表示从左侧保留区后开始替换的字符数.
-// middle 小于等于 0 时会替换左侧和右侧之间的全部字符.
-func MaskWith(value string, left int, middle int, right int, mask string) string {
+// left 替换左侧最多 count 个字符, 字符数不足时会全部替换.
+func left(value string, count int, mask string) string {
 	runes := []rune(value)
 	n := len(runes)
-	if n == 0 {
-		return ""
+	if n == 0 || count <= 0 {
+		return value
 	}
 	if mask == "" {
 		mask = DefaultMask
 	}
-	if left < 0 {
-		left = 0
+	if count > n {
+		count = n
 	}
-	if right < 0 {
-		right = 0
-	}
-	if left > n {
-		left = n
-	}
-	rightStart := n - right
-	if rightStart < left {
-		rightStart = left
-	}
-	if middle <= 0 || left+middle > rightStart {
-		middle = rightStart - left
-	}
-	if middle <= 0 {
+	return strings.Repeat(mask, count) + string(runes[count:])
+}
+
+// middle 替换中间最多 count 个字符, 字符数不足时会全部替换.
+func middle(value string, count int, mask string) string {
+	runes := []rune(value)
+	n := len(runes)
+	if n == 0 || count <= 0 {
 		return value
 	}
-	maskedEnd := left + middle
-	return string(runes[:left]) + strings.Repeat(mask, middle) + string(runes[maskedEnd:])
+	if mask == "" {
+		mask = DefaultMask
+	}
+	if count > n {
+		count = n
+	}
+	start := (n - count) / 2
+	end := start + count
+	return string(runes[:start]) + strings.Repeat(mask, count) + string(runes[end:])
+}
+
+// right 替换右侧最多 count 个字符, 字符数不足时会全部替换.
+func right(value string, count int, mask string) string {
+	runes := []rune(value)
+	n := len(runes)
+	if n == 0 || count <= 0 {
+		return value
+	}
+	if mask == "" {
+		mask = DefaultMask
+	}
+	if count > n {
+		count = n
+	}
+	start := n - count
+	return string(runes[:start]) + strings.Repeat(mask, count)
 }
